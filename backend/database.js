@@ -88,18 +88,42 @@ function convertSql(sql) {
     return sql.replace(/\?/g, () => `$${index++}`);
 }
 
+// ── Postgres Column Case Fixer ──
+// PostgreSQL folds unquoted column names to lowercase. This breaks the frontend which expects camelCase.
+function restoreCamelCase(row) {
+    if (!row) return row;
+    const keyMap = {
+        'discountedprice': 'discountedPrice',
+        'imageurl': 'imageUrl',
+        'userid': 'userId',
+        'cartitemid': 'cartItemId',
+        'totalamount': 'totalAmount',
+        'createdat': 'createdAt',
+        'productid': 'productId',
+        'totalvisits': 'totalVisits',
+        'lifetimespent': 'lifetimeSpent',
+        'monthlyspent': 'monthlySpent',
+        'joinedat': 'joinedAt'
+    };
+    const newRow = {};
+    for (const key in row) {
+        newRow[keyMap[key] || key] = row[key];
+    }
+    return newRow;
+}
+
 // ── Helper: dbAll ──
 async function dbAll(sql, params = []) {
     const pgSql = convertSql(sql);
     const result = await pool.query(pgSql, params);
-    return result.rows;
+    return result.rows.map(restoreCamelCase);
 }
 
 // ── Helper: dbGet ──
 async function dbGet(sql, params = []) {
     const pgSql = convertSql(sql);
     const result = await pool.query(pgSql, params);
-    return result.rows[0]; // Returns first row or undefined
+    return restoreCamelCase(result.rows[0]);
 }
 
 // ── Helper: dbRun ──
@@ -107,7 +131,6 @@ async function dbRun(sql, params = []) {
     let pgSql = convertSql(sql);
     
     // Postgres requires RETURNING id to get the last inserted ID.
-    // We automatically append it to INSERT statements to mimic SQLite's lastID behavior.
     if (pgSql.trim().toUpperCase().startsWith('INSERT') && !pgSql.toUpperCase().includes('RETURNING')) {
         pgSql = pgSql.replace(/;?$/, ' RETURNING id');
     }
