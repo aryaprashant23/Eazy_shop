@@ -59,7 +59,7 @@ async function seed() {
         // Seed a default admin user with hashed password
         const bcrypt = require('bcryptjs');
         const adminExists = await dbGet("SELECT COUNT(*) AS count FROM users WHERE role = 'admin'");
-        if (adminExists.count === 0) {
+        if (Number(adminExists.count) === 0) {
             const hashedPassword = await bcrypt.hash('admin123', 10);
             await dbRun(
                 `INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)`,

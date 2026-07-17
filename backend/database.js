@@ -104,12 +104,16 @@ async function dbGet(sql, params = []) {
 
 // ── Helper: dbRun ──
 async function dbRun(sql, params = []) {
-    const pgSql = convertSql(sql);
+    let pgSql = convertSql(sql);
+    
+    // Postgres requires RETURNING id to get the last inserted ID.
+    // We automatically append it to INSERT statements to mimic SQLite's lastID behavior.
+    if (pgSql.trim().toUpperCase().startsWith('INSERT') && !pgSql.toUpperCase().includes('RETURNING')) {
+        pgSql = pgSql.replace(/;?$/, ' RETURNING id');
+    }
+
     const result = await pool.query(pgSql, params);
     
-    // Attempt to mimic SQLite's this.lastID logic if it was an INSERT on a table with SERIAL
-    // (Note: To get true lastID in Postgres, RETURNING id is usually required. 
-    // We will return a mock lastID and rowCount for basic compatibility)
     return { changes: result.rowCount, lastID: result.rows[0]?.id || 0 };
 }
 
