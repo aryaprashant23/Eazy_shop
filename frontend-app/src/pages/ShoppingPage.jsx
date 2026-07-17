@@ -12,6 +12,7 @@ export default function ShoppingPage() {
     
     // Catalog State
     const [products, setProducts] = useState([]);
+    const [catalogSearch, setCatalogSearch] = useState('');
     
     // Scanner State
     const [barcode, setBarcode] = useState('');
@@ -116,7 +117,10 @@ export default function ShoppingPage() {
                 setScannedProduct(null);
                 setBarcode('');
                 fetchCart(); // Refresh cart
-                setActiveTab('cart'); // Jump to cart to see it
+                // Only jump to cart tab if they scanned. If they are in catalog, let them stay.
+                if (activeTab === 'scanner') {
+                    setActiveTab('cart');
+                }
             } else {
                 alert(data.error?.message || 'Failed to add item');
             }
@@ -162,7 +166,8 @@ export default function ShoppingPage() {
 
     // ─── Render Helpers ───
 
-    const categories = [...new Set(products.map(p => p.category))];
+    const filteredProducts = products.filter(p => p.name.toLowerCase().includes(catalogSearch.toLowerCase()));
+    const categories = [...new Set(filteredProducts.map(p => p.category))];
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
@@ -243,33 +248,57 @@ export default function ShoppingPage() {
                         <div className="status-banner success" style={{ marginBottom: '1rem' }}>
                             Shopping Session Active
                         </div>
-                        <h3 className="section-title"><Package size={18} /> Available Products</h3>
+                        <h3 className="section-title" style={{ marginBottom: '1rem' }}><Package size={18} /> Available Products</h3>
+                        
+                        <div className="input-group" style={{ marginBottom: '1.5rem' }}>
+                            <Search size={18} className="input-icon" />
+                            <input 
+                                type="text" 
+                                placeholder="Search catalog..." 
+                                value={catalogSearch}
+                                onChange={(e) => setCatalogSearch(e.target.value)}
+                            />
+                        </div>
+
                         {categories.map(cat => (
                             <div key={cat} className="category-group">
                                 <h4 className="category-label">{cat}</h4>
                                 <ul className="product-list">
-                                    {products.filter(p => p.category === cat).map(product => (
+                                    {filteredProducts.filter(p => p.category === cat).map(product => (
                                         <li key={product.id} className="product-item">
                                             <div>
                                                 <div className="product-name">{product.name}</div>
                                                 <div className="product-meta">{product.weight} · Stock: {product.stock}</div>
                                                 <div className="product-meta" style={{ fontFamily: 'monospace' }}>{product.id}</div>
                                             </div>
-                                            <div className="product-price">
-                                                {product.discountedPrice < product.price ? (
-                                                    <>
-                                                        <span className="price-sale">₹{product.discountedPrice}</span>
-                                                        <span className="price-original">₹{product.price}</span>
-                                                    </>
-                                                ) : (
-                                                    <span>₹{product.price}</span>
-                                                )}
+                                            <div className="product-price" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.5rem' }}>
+                                                <div style={{ textAlign: 'right' }}>
+                                                    {product.discountedPrice < product.price ? (
+                                                        <>
+                                                            <span className="price-sale">₹{product.discountedPrice}</span>
+                                                            <span className="price-original">₹{product.price}</span>
+                                                        </>
+                                                    ) : (
+                                                        <span>₹{product.price}</span>
+                                                    )}
+                                                </div>
+                                                <button 
+                                                    className="btn btn-primary" 
+                                                    style={{ padding: '0.25rem 1rem', fontSize: '0.875rem' }} 
+                                                    onClick={() => handleAddToCart(product)}
+                                                >
+                                                    Add
+                                                </button>
                                             </div>
                                         </li>
                                     ))}
                                 </ul>
                             </div>
                         ))}
+                        
+                        {filteredProducts.length === 0 && (
+                            <p className="text-muted" style={{ textAlign: 'center', marginTop: '2rem' }}>No products found.</p>
+                        )}
                     </>
                 )}
 
