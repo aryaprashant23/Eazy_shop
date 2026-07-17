@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ShoppingCart, LogOut, ScanLine, Package, ArrowLeft, Search, Plus, Minus, Trash2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import BarcodeScanner from '../components/BarcodeScanner';
 
 export default function ShoppingPage() {
     const { storeId } = useParams();
@@ -92,6 +93,24 @@ export default function ShoppingPage() {
 
         try {
             const res = await fetch(`/api/products/${barcode}`, { headers: { Authorization: `Bearer ${token}` } });
+            const data = await res.json();
+            if (res.ok) {
+                setScannedProduct(data.data);
+            } else {
+                setScanError(data.error?.message || 'Product not found');
+            }
+        } catch (err) {
+            setScanError('Error scanning product');
+        }
+    };
+
+    const handleCameraScan = async (scannedCode) => {
+        setBarcode(scannedCode);
+        setScanError('');
+        setScannedProduct(null);
+
+        try {
+            const res = await fetch(`/api/products/${scannedCode}`, { headers: { Authorization: `Bearer ${token}` } });
             const data = await res.json();
             if (res.ok) {
                 setScannedProduct(data.data);
@@ -305,19 +324,21 @@ export default function ShoppingPage() {
                 {/* ── SCANNER TAB ── */}
                 {activeTab === 'scanner' && (
                     <div style={{ padding: '1rem 0' }}>
-                        <h2 style={{ textAlign: 'center', marginBottom: '1rem' }}>Scan Barcode</h2>
+                        
+                        <BarcodeScanner onScan={handleCameraScan} />
+
+                        <h3 style={{ textAlign: 'center', marginBottom: '1rem', fontSize: '1rem' }}>Or Type Barcode Manually</h3>
                         <form onSubmit={handleScan} style={{ display: 'flex', gap: '0.5rem', marginBottom: '2rem' }}>
                             <div className="input-group" style={{ flex: 1 }}>
                                 <Search size={18} className="input-icon" />
                                 <input 
                                     type="text" 
-                                    placeholder="Enter barcode (e.g. SNK-001)" 
+                                    placeholder="Enter barcode (e.g. 8901058850603)" 
                                     value={barcode}
                                     onChange={(e) => setBarcode(e.target.value)}
-                                    autoFocus
                                 />
                             </div>
-                            <button type="submit" className="btn btn-primary">Scan</button>
+                            <button type="submit" className="btn btn-primary">Search</button>
                         </form>
 
                         {scanError && (
