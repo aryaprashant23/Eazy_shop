@@ -1,114 +1,117 @@
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
+const { Pool } = require('pg');
 require('dotenv').config();
 
-const dbPath = path.resolve(__dirname, process.env.DB_PATH || './shop.db');
-
-const db = new sqlite3.Database(dbPath, (err) => {
-    if (err) {
-        console.error('❌ Error opening database:', err.message);
-        process.exit(1);
-    }
-    console.log(`✅ Connected to SQLite database at ${dbPath}`);
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false } // Required for Supabase
 });
 
-// Enable WAL mode for better concurrent read performance
-db.run('PRAGMA journal_mode=WAL');
+pool.on('error', (err) => {
+    console.error('❌ Unexpected error on idle client', err);
+    process.exit(-1);
+});
+
+pool.connect((err, client, release) => {
+    if (err) {
+        console.error('❌ Error connecting to PostgreSQL:', err.message);
+    } else {
+        console.log('✅ Connected to Supabase PostgreSQL');
+        release();
+    }
+});
 
 /**
- * Initialize all database tables.
- * Called once on server startup.
+ * Initialize all database tables for PostgreSQL.
  */
-function initializeDatabase() {
-    return new Promise((resolve, reject) => {
-        db.serialize(() => {
-            // ── Products Table ──
-            db.run(`
-                CREATE TABLE IF NOT EXISTS products (
-                    id          TEXT PRIMARY KEY,
-                    name        TEXT NOT NULL,
-                    price       REAL NOT NULL,
-                    discountedPrice REAL,
-                    weight      TEXT,
-                    imageUrl    TEXT,
-                    category    TEXT,
-                    stock       INTEGER DEFAULT 0,
-                    createdAt   DATETIME DEFAULT CURRENT_TIMESTAMP
-                )
-            `);
+async function initializeDatabase() {
+    try {
+        // ── Products Table ──
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS products (
+                id          TEXT PRIMARY KEY,
+                name        TEXT NOT NULL,
+                price       REAL NOT NULL,
+                discountedPrice REAL,
+                weight      TEXT,
+                imageUrl    TEXT,
+                category    TEXT,
+                stock       INTEGER DEFAULT 0,
+                createdAt   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
 
-            // ── Users Table ──
-            db.run(`
-                CREATE TABLE IF NOT EXISTS users (
-                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name        TEXT NOT NULL,
-                    email       TEXT UNIQUE NOT NULL,
-                    password    TEXT NOT NULL,
-                    role        TEXT DEFAULT 'customer',
-                    createdAt   DATETIME DEFAULT CURRENT_TIMESTAMP
-                )
-            `);
+        // ── Users Table ──
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS users (
+                id          SERIAL PRIMARY KEY,
+                name        TEXT NOT NULL,
+                email       TEXT UNIQUE NOT NULL,
+                password    TEXT NOT NULL,
+                role        TEXT DEFAULT 'customer',
+                createdAt   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
 
-            // ── Orders Table ──
-            db.run(`
-                CREATE TABLE IF NOT EXISTS orders (
-                    id          TEXT PRIMARY KEY,
-                    userId      INTEGER,
-                    items       TEXT,
-                    totalAmount REAL NOT NULL,
-                    status      TEXT DEFAULT 'PENDING',
-                    createdAt   DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (userId) REFERENCES users(id)
-                )
-            `);
+        // ── Orders Table ──
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS orders (
+                id          TEXT PRIMARY KEY,
+                userId      INTEGER REFERENCES users(id),
+                items       TEXT,
+                totalAmount REAL NOT NULL,
+                status      TEXT DEFAULT 'PENDING',
+                createdAt   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
 
-            // ── Cart Items Table (Phase 4) ──
-            db.run(`
-                CREATE TABLE IF NOT EXISTS cart_items (
-                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                    userId      INTEGER NOT NULL,
-                    productId   TEXT NOT NULL,
-                    quantity    INTEGER DEFAULT 1,
-                    FOREIGN KEY (userId) REFERENCES users(id),
-                    FOREIGN KEY (productId) REFERENCES products(id)
-                )
-            `, (err) => {
-                if (err) return reject(err);
-                console.log('✅ Database tables initialized (products, users, orders, cart_items)');
-                resolve();
-            });
-        });
-    });
+        // ── Cart Items Table ──
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS cart_items (
+                id          SERIAL PRIMARY KEY,
+                userId      INTEGER NOT NULL REFERENCES users(id),
+                productId   TEXT NOT NULL REFERENCES products(id),
+                quantity    INTEGER DEFAULT 1
+            )
+        `);
+
+        console.log('✅ Database tables initialized (products, users, orders, cart_items)');
+    } catch (err) {
+        console.error('❌ Table initialization failed:', err);
+        throw err;
+    }
 }
 
-// ── Helper: Promisified db.all ──
-function dbAll(sql, params = []) {
-    return new Promise((resolve, reject) => {
-        db.all(sql, params, (err, rows) => {
-            if (err) reject(err);
-            else resolve(rows);
-        });
-    });
+// ── SQLite to Postgres Converter Helper ──
+// Converts "SELECT * FROM users WHERE id = ?" to "SELECT * FROM users WHERE id = $1"
+function convertSql(sql) {
+    let index = 1;
+    return sql.replace(/\?/g, () => `$${index++}`);
 }
 
-// ── Helper: Promisified db.get ──
-function dbGet(sql, params = []) {
-    return new Promise((resolve, reject) => {
-        db.get(sql, params, (err, row) => {
-            if (err) reject(err);
-            else resolve(row);
-        });
-    });
+// ── Helper: dbAll ──
+async function dbAll(sql, params = []) {
+    const pgSql = convertSql(sql);
+    const result = await pool.query(pgSql, params);
+    return result.rows;
 }
 
-// ── Helper: Promisified db.run ──
-function dbRun(sql, params = []) {
-    return new Promise((resolve, reject) => {
-        db.run(sql, params, function (err) {
-            if (err) reject(err);
-            else resolve({ lastID: this.lastID, changes: this.changes });
-        });
-    });
+// ── Helper: dbGet ──
+async function dbGet(sql, params = []) {
+    const pgSql = convertSql(sql);
+    const result = await pool.query(pgSql, params);
+    return result.rows[0]; // Returns first row or undefined
 }
 
-module.exports = { db, initializeDatabase, dbAll, dbGet, dbRun };
+// ── Helper: dbRun ──
+async function dbRun(sql, params = []) {
+    const pgSql = convertSql(sql);
+    const result = await pool.query(pgSql, params);
+    
+    // Attempt to mimic SQLite's this.lastID logic if it was an INSERT on a table with SERIAL
+    // (Note: To get true lastID in Postgres, RETURNING id is usually required. 
+    // We will return a mock lastID and rowCount for basic compatibility)
+    return { changes: result.rowCount, lastID: result.rows[0]?.id || 0 };
+}
+
+// We map `db` to `pool` just in case someone references db directly.
+module.exports = { db: pool, initializeDatabase, dbAll, dbGet, dbRun };

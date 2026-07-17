@@ -84,7 +84,7 @@ router.get('/customers', async (req, res, next) => {
                 u.createdAt AS joinedAt,
                 COUNT(CASE WHEN o.status = 'VERIFIED' THEN o.id END) AS totalVisits,
                 COALESCE(SUM(CASE WHEN o.status IN ('PAID', 'VERIFIED') THEN o.totalAmount ELSE 0 END), 0) AS lifetimeSpent,
-                COALESCE(SUM(CASE WHEN o.status IN ('PAID', 'VERIFIED') AND strftime('%Y-%m', o.createdAt) = strftime('%Y-%m', 'now') THEN o.totalAmount ELSE 0 END), 0) AS monthlySpent
+                COALESCE(SUM(CASE WHEN o.status IN ('PAID', 'VERIFIED') AND to_char(o.createdAt, 'YYYY-MM') = to_char(CURRENT_DATE, 'YYYY-MM') THEN o.totalAmount ELSE 0 END), 0) AS monthlySpent
             FROM users u
             LEFT JOIN orders o ON u.id = o.userId
             WHERE u.role = 'customer'
